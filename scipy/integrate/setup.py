@@ -23,6 +23,8 @@ def configuration(parent_package='',top_path=None):
         'lsoda.f', 'prja.f', 'solsy.f', 'srcma.f',
         'stoda.f', 'vmnorm.f', 'xerrwv.f', 'xsetf.f',
         'xsetun.f']]
+    lsodes_src = [join('odepack', fn) for fn in [
+        'lsodes.f','opkda1.f','opkda2.f']]
     vode_src = [join('odepack', 'vode.f'), join('odepack', 'zvode.f')]
     dop_src = [join('dop','*.f')]
     quadpack_test_src = [join('tests','_test_multivariate.c')]
@@ -32,6 +34,7 @@ def configuration(parent_package='',top_path=None):
                        config_fc={'noopt':(__file__,1)})
     config.add_library('quadpack', sources=quadpack_src)
     config.add_library('lsoda', sources=lsoda_src)
+    config.add_library('lsodes', sources=lsodes_src)
     config.add_library('vode', sources=vode_src)
     config.add_library('dop', sources=dop_src)
 
@@ -71,6 +74,13 @@ def configuration(parent_package='',top_path=None):
                          sources=['lsoda.pyf'],
                          libraries=['lsoda', 'mach'] + lapack_libs,
                          depends=(lsoda_src + mach_src),
+                         **lapack_opt)
+
+    # lsodes
+    config.add_extension('lsodes',
+                         sources=['lsodes.pyf'],
+                         libraries=['lsodes', 'mach'] + lapack_libs,
+                         depends=(lsodes_src + mach_src),
                          **lapack_opt)
 
     # dop
