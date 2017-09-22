@@ -90,6 +90,7 @@ from numpy import asarray, array, zeros, int32, isscalar, real, imag, vstack
 from . import vode as _vode
 from . import _dop
 from . import lsoda as _lsoda
+from . import lsodes as _lsodes
 
 
 # ------------------------------------------------------------------------------
@@ -256,6 +257,8 @@ class ode(object):
           (default 0)
         - ixpr : int
           Whether to generate extra printing at method switches (default False).
+
+    TODO: Add desciption for lsodes
 
     "dopri5"
 
@@ -1367,3 +1370,99 @@ class lsoda(IntegratorBase):
 
 if lsoda.runner:
     IntegratorBase.integrator_classes.append(lsoda)
+
+
+# TODO: Maybe it is better to inherit from lsodes 
+# (though most function will be overwritten anyway)
+class lsodes(IntegratorBase):
+    runner = getattr(_lsodes, 'dlsodes', None)
+    active_global_handle = 0
+
+    messages = {
+        2: "Integration successful.",
+        -1: "Excess work done on this call (perhaps wrong MF).",
+        -2: "Excess accuracy requested (tolerances too small).",
+        -3: "Illegal input detected (internal error, see printed message).",
+        -4: "Repeated error test failures (internal error, check inputs).",
+        -5: "Repeated convergence failures (perhaps bad Jacobian or wrong MF or tolerances).",
+        -6: "Error weight became zero during problem.",
+        -7: "means a fatal error from sparse solver (internal error)."
+    }
+
+    # TODO: adjust __init__ to lsodes parameters when necessary
+    def __init__(self,
+                 with_jacobian=False,
+                 rtol=1e-6, atol=1e-12,
+                 lband=None, uband=None,
+                 nsteps=500,
+                 max_step=0.0,  # corresponds to infinite
+                 min_step=0.0,
+                 first_step=0.0,  # determined by solver
+                 ixpr=0,
+                 max_hnil=0,
+                 max_order_ns=12,
+                 max_order_s=5,
+                 method=None
+                ):
+
+        self.with_jacobian = with_jacobian
+        self.rtol = rtol
+        self.atol = atol
+        self.mu = uband
+        self.ml = lband
+
+        self.max_order_ns = max_order_ns
+        self.max_order_s = max_order_s
+        self.nsteps = nsteps
+        self.max_step = max_step
+        self.min_step = min_step
+        self.first_step = first_step
+        self.ixpr = ixpr
+        self.max_hnil = max_hnil
+        self.success = 1
+
+        self.initialized = False
+
+    def reset(self):
+        pass
+        # TODO: implement this function
+        # it should set all relevant parameters for fortran routine dlsodes
+
+    def run(self, f, jac, y0, t0, t1, f_params, jac_params):
+        if self.initialized:
+            self.check_handle()
+        else:
+            self.initialized = True
+            self.acquire_new_handle()
+        # TODO: adjust args to fortran rountine dlsodes
+        #args = [f, y0, t0, t1] + self.call_args[:-1] + \
+        #       [jac, self.call_args[-1], f_params, 0, jac_params]
+        y1, t, istate = self.runner(*args)
+        self.istate = istate
+        if istate < 0:
+            unexpected_istate_msg = 'Unexpected istate={:d}'.format(istate)
+            warnings.warn('{:s}: {:s}'.format(self.__class__.__name__,
+                          self.messages.get(istate, unexpected_istate_msg)))
+            self.success = 0
+        else:
+            self.call_args[3] = 2  # upgrade istate from 1 to 2
+            self.istate = 2
+        return y1, t
+
+    def step(self, *args):
+        itask = self.call_args[2]
+        self.call_args[2] = 2
+        r = self.run(*args)
+        self.call_args[2] = itask
+        return r
+
+    def run_relax(self, *args):
+        itask = self.call_args[2]
+        self.call_args[2] = 3
+        r = self.run(*args)
+        self.call_args[2] = itask
+        return r
+
+
+if lsodes.runner:
+    IntegratorBase.integrator_classes.append(lsodes)
