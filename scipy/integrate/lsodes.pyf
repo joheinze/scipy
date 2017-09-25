@@ -14,7 +14,7 @@ python module lsodes__user__routines
          integer intent(hide) :: n
          double precision :: t
          double precision dimension(n),intent(c,in) :: y
-         integer intent(hide) :: ml,mu
+         integer intent(in) :: j
          integer intent(hide):: IAN, JAN
          double precision intent(out) :: pdj(n)
        end subroutine jac
@@ -24,6 +24,7 @@ end python module lsodes__user__routines
 python module lsodes
     interface
         subroutine dlsodes(f,neq,y,t,tout,itol,rtol,atol,itask,istate,iopt,rwork,lrw,iwork,liw,jac,mf)
+            callstatement (*f2py_func)(cb_f_in_lsodes__user__routines,&neq,y,&t,&tout,&itol,rtol,atol,&itask,&istate,&iopt,rwork,&lrw,iwork,&liw,cb_jac_in_lsodes__user__routines,&mf)
             use lsodes__user__routines
             external f
             external jac
@@ -44,8 +45,8 @@ python module lsodes
             integer intent(hide),check(len(rwork)>=lrw),depend(rwork) :: lrw=len(rwork)
             integer dimension(liw),intent(in,cache) :: iwork
             integer intent(hide),check(len(iwork)>=liw),depend(iwork) :: liw=len(iwork)
-            double intent(in) :: mf
+            integer intent(in) :: mf
 
         end subroutine dlsodes
     end interface
-end python module lsodes+
+end python module lsodes

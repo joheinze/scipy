@@ -22,7 +22,7 @@ python module lsoda__user__routines
     end interface
 end python module lsoda__user__routines
   
-python module lsoda
+python module lsoda 
     interface
        subroutine lsoda(f,neq,y,t,tout,itol,rtol,atol,itask,istate,iopt,rwork,lrw,iwork,liw,jac,jt)
          ! y1,t,istate = lsoda(f,jac,y0,t0,t1,rtol,atol,itask,istate,rwork,iwork,mf)
