@@ -85,7 +85,7 @@ __docformat__ = "restructuredtext en"
 import re
 import warnings
 
-from numpy import asarray, array, zeros, int32, isscalar, real, imag, vstack
+from numpy import asarray, array, zeros, int32, isscalar, real, imag, vstack, ones
 
 from . import vode as _vode
 from . import _dop
@@ -1385,12 +1385,14 @@ class lsodes(IntegratorBase):
         -6: "Error weight became zero during problem.",
         -7: "means a fatal error from sparse solver (internal error)."
     }
+    supports_step = 1
 
     # TODO: adjust __init__ to lsodes parameters when necessary
     def __init__(self,
                  with_jacobian=False,
-                 jacfunc=lambda: None,
+                 jacfunc=None,
                  ndim=1,
+                 nnz=1,
                  rtol=1e-6, atol=1e-12,
                  nsteps=500,
                  max_step=0.0,  # corresponds to infinite
@@ -1406,6 +1408,7 @@ class lsodes(IntegratorBase):
         self.with_jacobian = with_jacobian
         self.jacfunc = jacfunc
         self.ndim=ndim
+        self.nnz=nnz
         self.method = method
         self.rtol = rtol
         self.atol = atol
@@ -1423,48 +1426,42 @@ class lsodes(IntegratorBase):
         # Temporary variable for the cache of the jacobian
         self.tlast = None
         self.jmatlast = None
-        self.dense_col = None
-        self.jacfunc = jacfunc
-
+        from numpy import asfortranarray
+        self.dense_col = asfortranarray(zeros(self.ndim))
         self.initialized = False
-
 
 
     def reset(self, n, has_jac):
         if has_jac:
-            from numpy import ones, zeros
-            sp_jac_mat = self.jacfunc(0., ones(self.ndim))
-            ja = sp_jac_mat.indices
-            ia = sp_jac_mat.indptr
-            nnz = sp_jac_mat.nnz
-            n = sp_jac_mat.shape[0]
-            self.dense_col = zeros(n)
+            self.jmatlast = self.jacfunc(0., ones(self.ndim))
+            ja = self.jmatlast.indices
+            ia = self.jmatlast.indptr
+            self.nnz = self.jmatlast.nnz
+            n = self.jmatlast.shape[0]
 
-        print('n, nnz, ia, ja', n, nnz, ia, ja)
-
+        nnz = self.nnz
         liw = 31 + n + nnz
 
         if re.match(self.method, r'bdf', re.I) and has_jac:
             print('bdf has_jac')
             self.mt = 21
             lwm = int(2*nnz + 2*n + (nnz + 9*n)/2)
-            morders = self.max_order_s
+            lrw = 20 + 16*n + lwm*10
         elif re.match(self.method, r'bdf', re.I):
             print('bdf')
             self.mt = 222
             lwm = int(2*nnz + 2*n + (nnz + 10*n)/2)
-            morders = self.max_order_s
+            lrw = 20 + 16*n + lwm*10
         elif re.match(self.method, r'adams', re.I):
             print('adams')
             self.mt = 10
             liw = 30
             lwm = 0
+            lrw = 20 + 16*n
             morders = self.max_order_ns
         else:
             raise Exception('Unsupported method.')
 
-        lrw = 20 + n*(morders + 1) + 3*n + lwm*2
-        print('lwr, liw', lrw, liw)
         rwork = zeros((lrw,), float)
         rwork[4] = self.first_step
         rwork[5] = self.max_step
@@ -1477,9 +1474,11 @@ class lsodes(IntegratorBase):
         iwork[6] = self.max_hnil
         iwork[7] = self.max_order_ns
         iwork[8] = self.max_order_s
+        
+        if re.match(self.method, r'bdf', re.I) and has_jac:
+            iwork[29:29+n+1] = ia
+            iwork[29+n+1:29+n+1+nnz] = ja
 
-        iwork[29:29+n+1] = ia
-        iwork[29+n+1:29+n+1+nnz] = ja
         self.iwork = iwork
         self.call_args = [self.rtol,  self.atol, 1, 1,
                           self.rwork, self.iwork,
@@ -1494,6 +1493,8 @@ class lsodes(IntegratorBase):
         need to be updated.
         """
         # print('t,y,j,jac_params', t,y,j,jac_params)
+        # print(self.dense_col)
+        # self.dense_col *= 0.
         if t != self.tlast:
             self.jmatlast = self.jacfunc(t, y, jac_params)
             if (hasattr(self.jmatlast,'format') and 
@@ -1517,12 +1518,7 @@ class lsodes(IntegratorBase):
         # TODO: adjust args to fortran rountine dlsodes
 
         # Wrap jacobian function
-        # print('jac_params',jac, jac_params)
         self.jacfunc = jac
-        # from numpy import ones
-        # print('jacfunc', self.jacfunc(1.1, ones(12)))
-        # print('jac',
-        #     self._lsodes_sparse_jac_wrapper(1.1, ones(12),2,jac_params))
         args = [f, y0, t0, t1] + self.call_args[:-1] + \
                [self._lsodes_sparse_jac_wrapper, self.call_args[-1],
                f_params, 0, jac_params]
