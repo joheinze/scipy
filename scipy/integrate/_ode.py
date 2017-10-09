@@ -1371,44 +1371,54 @@ class lsoda(IntegratorBase):
 if lsoda.runner:
     IntegratorBase.integrator_classes.append(lsoda)
 
+
 class lsodes(IntegratorBase):
     runner = getattr(_lsodes, 'dlsodes', None)
     active_global_handle = 0
 
     messages = {
-        2: "Integration successful.",
-        -1: "Excess work done on this call (perhaps wrong MF).",
-        -2: "Excess accuracy requested (tolerances too small).",
-        -3: "Illegal input detected (internal error, see printed message).",
-        -4: "Repeated error test failures (internal error, check inputs).",
-        -5: "Repeated convergence failures (perhaps bad Jacobian or wrong MF or tolerances).",
-        -6: "Error weight became zero during problem.",
-        -7: "means a fatal error from sparse solver (internal error)."
+        2:
+        "Integration successful.",
+        -1:
+        "Excess work done on this call (perhaps wrong MF).",
+        -2:
+        "Excess accuracy requested (tolerances too small).",
+        -3:
+        "Illegal input detected (internal error, see printed message).",
+        -4:
+        "Repeated error test failures (internal error, check inputs).",
+        -5:
+        "Repeated convergence failures (perhaps bad Jacobian or wrong MF or tolerances).",
+        -6:
+        "Error weight became zero during problem.",
+        -7:
+        "means a fatal error from sparse solver (internal error)."
     }
     supports_step = 1
 
     # TODO: adjust __init__ to lsodes parameters when necessary
-    def __init__(self,
-                 with_jacobian=False,
-                 jacfunc=None,
-                 ndim=1,
-                 nnz=1,
-                 rtol=1e-6, atol=1e-12,
-                 nsteps=500,
-                 max_step=0.0,  # corresponds to infinite
-                 min_step=0.0,
-                 first_step=0.0,  # determined by solver
-                 ixpr=0,
-                 max_hnil=0,
-                 max_order_ns=12,
-                 max_order_s=5,
-                 method=None
-                ):
+    def __init__(
+            self,
+            with_jacobian=False,
+            csc_jacobian=None,
+            ndim=1,
+            nnz=1,
+            rtol=1e-6,
+            atol=1e-12,
+            nsteps=500,
+            max_step=0.0,  # corresponds to infinite
+            min_step=0.0,
+            first_step=0.0,  # determined by solver
+            ixpr=0,
+            max_hnil=0,
+            max_order_ns=12,
+            max_order_s=5,
+            method=None):
 
         self.with_jacobian = with_jacobian
-        self.jacfunc = jacfunc
-        self.ndim=ndim
-        self.nnz=nnz
+        self.csc_jacobian = csc_jacobian
+        self.ndim = ndim
+        self.nnz = nnz
         self.method = method
         self.rtol = rtol
         self.atol = atol
@@ -1428,12 +1438,15 @@ class lsodes(IntegratorBase):
         self.jmatlast = None
         from numpy import asfortranarray
         self.dense_col = asfortranarray(zeros(self.ndim))
+        self.reset_done = False
         self.initialized = False
 
-
     def reset(self, n, has_jac):
-        if has_jac:
-            self.jmatlast = self.jacfunc(0., ones(self.ndim))
+        from numpy import asfortranarray
+        if self.reset_done:
+            return
+        if has_jac and self.csc_jacobian is not None:
+            self.jmatlast = self.csc_jacobian
             ja = self.jmatlast.indices
             ia = self.jmatlast.indptr
             self.nnz = self.jmatlast.nnz
@@ -1442,47 +1455,55 @@ class lsodes(IntegratorBase):
         nnz = self.nnz
         liw = 31 + n + nnz
 
-        if re.match(self.method, r'bdf', re.I) and has_jac:
-            print('bdf has_jac')
+        if (re.match(self.method, r'bdf', re.I) and has_jac
+                and self.csc_jacobian is not None):
+            print('bdf has_jac ja/ia')
             self.mt = 21
-            lwm = int(2*nnz + 2*n + (nnz + 9*n)/2)
-            lrw = 20 + 16*n + lwm*10
+            lwm = int(2 * nnz + 2 * n + (nnz + 9 * n) / 2)
+            lrw = 20 + 16 * n + lwm * 10
+        elif re.match(self.method, r'bdf', re.I) and has_jac:
+            print('bdf has_jac')
+            self.mt = 121
+            lwm = int(2 * nnz + 2 * n + (nnz + 9 * n) / 2)
+            lrw = 20 + 16 * n + lwm * 10
         elif re.match(self.method, r'bdf', re.I):
             print('bdf')
             self.mt = 222
-            lwm = int(2*nnz + 2*n + (nnz + 10*n)/2)
-            lrw = 20 + 16*n + lwm*10
+            lwm = int(2 * nnz + 2 * n + (nnz + 10 * n) / 2)
+            lrw = 20 + 16 * n + lwm * 10
         elif re.match(self.method, r'adams', re.I):
             print('adams')
             self.mt = 10
             liw = 30
             lwm = 0
-            lrw = 20 + 16*n
+            lrw = 20 + 16 * n
             morders = self.max_order_ns
         else:
             raise Exception('Unsupported method.')
 
-        rwork = zeros((lrw,), float)
+        rwork = asfortranarray(zeros((lrw, ), float))
         rwork[4] = self.first_step
         rwork[5] = self.max_step
         rwork[6] = self.min_step
         self.rwork = rwork
 
-        iwork = zeros((liw,), int32)
+        iwork = asfortranarray(zeros((liw, ), int32))
         iwork[4] = self.ixpr
         iwork[5] = self.nsteps
         iwork[6] = self.max_hnil
         iwork[7] = self.max_order_ns
         iwork[8] = self.max_order_s
-        
-        if re.match(self.method, r'bdf', re.I) and has_jac:
-            iwork[29:29+n+1] = ia
-            iwork[29+n+1:29+n+1+nnz] = ja
+
+        if (re.match(self.method, r'bdf', re.I) and has_jac
+                and self.csc_jacobian is not None):
+            iwork[29:29 + n + 1] = ia
+            iwork[29 + n + 1:29 + n + 1 + nnz] = ja
 
         self.iwork = iwork
-        self.call_args = [self.rtol,  self.atol, 1, 1,
-                          self.rwork, self.iwork,
-                          self.mt]
+        self.call_args = [
+            self.rtol, self.atol, 1, 1, self.rwork, self.iwork, self.mt
+        ]
+        self.reset_done = True
 
     def _lsodes_sparse_jac_wrapper(self, t, y, j, jac_params):
         """
@@ -1492,22 +1513,11 @@ class lsodes(IntegratorBase):
         column j slices. Only the values of the nonzero elements
         need to be updated.
         """
-        # print('t,y,j,jac_params', t,y,j,jac_params)
-        # print(self.dense_col)
-        # self.dense_col *= 0.
         if t != self.tlast:
             self.jmatlast = self.jacfunc(t, y, jac_params)
-            if (hasattr(self.jmatlast,'format') and 
-                self.jmatlast.format != 'csc'):
-                warnings.warn('Jacobian function is does not ' +
-                'return a sparse CSC matrix. Use CSC format ' +
-                'for best performance or LSODA with dense matrices.')
-                self.jmatlast = self.jmatlast.tocsc()
             self.tlast = t
 
-        spcol = self.jmatlast.getcol(j - 1)
-        self.dense_col[spcol.indices] = spcol.data
-        return self.dense_col
+        return self.jmatlast[:, j - 1]
 
     def run(self, f, jac, y0, t0, t1, f_params, jac_params):
         if self.initialized:
@@ -1526,8 +1536,9 @@ class lsodes(IntegratorBase):
         self.istate = istate
         if istate < 0:
             unexpected_istate_msg = 'Unexpected istate={:d}'.format(istate)
-            warnings.warn('{:s}: {:s}'.format(self.__class__.__name__,
-                          self.messages.get(istate, unexpected_istate_msg)))
+            warnings.warn('{:s}: {:s}'.format(
+                self.__class__.__name__,
+                self.messages.get(istate, unexpected_istate_msg)))
             self.success = 0
         else:
             self.call_args[3] = 2  # upgrade istate from 1 to 2
