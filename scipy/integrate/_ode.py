@@ -1394,9 +1394,7 @@ class lsodes(IntegratorBase):
         -7:
         "means a fatal error from sparse solver (internal error)."
     }
-    supports_step = 1
-
-    # TODO: adjust __init__ to lsodes parameters when necessary
+    
     def __init__(
             self,
             with_jacobian=False,
@@ -1433,46 +1431,38 @@ class lsodes(IntegratorBase):
         self.max_hnil = max_hnil
         self.success = 1
 
-        # Temporary variable for the cache of the jacobian
+        # Temporary variable for caching of the jacobian
         self.tlast = None
         self.jmatlast = None
-        from numpy import asfortranarray
-        self.dense_col = asfortranarray(zeros(self.ndim))
-        self.reset_done = False
         self.initialized = False
 
     def reset(self, n, has_jac):
-        from numpy import asfortranarray
-        if self.reset_done:
-            return
+        
         if has_jac and self.csc_jacobian is not None:
-            self.jmatlast = self.csc_jacobian
-            ja = self.jmatlast.indices
-            ia = self.jmatlast.indptr
-            self.nnz = self.jmatlast.nnz
-            n = self.jmatlast.shape[0]
+            self.csc_jacobian = self.csc_jacobian
+            ja = self.csc_jacobian.indices
+            ia = self.csc_jacobian.indptr
+            self.nnz = self.csc_jacobian.nnz
+            n = self.csc_jacobian.shape[0]
+            self.ndim = n
 
-        nnz = self.nnz
+        nnz = self.nnz  
         liw = 31 + n + nnz
 
         if (re.match(self.method, r'bdf', re.I) and has_jac
                 and self.csc_jacobian is not None):
-            print('bdf has_jac ja/ia')
             self.mt = 21
             lwm = int(2 * nnz + 2 * n + (nnz + 9 * n) / 2)
             lrw = 20 + 16 * n + lwm * 10
         elif re.match(self.method, r'bdf', re.I) and has_jac:
-            print('bdf has_jac')
             self.mt = 121
             lwm = int(2 * nnz + 2 * n + (nnz + 9 * n) / 2)
             lrw = 20 + 16 * n + lwm * 10
         elif re.match(self.method, r'bdf', re.I):
-            print('bdf')
             self.mt = 222
             lwm = int(2 * nnz + 2 * n + (nnz + 10 * n) / 2)
             lrw = 20 + 16 * n + lwm * 10
         elif re.match(self.method, r'adams', re.I):
-            print('adams')
             self.mt = 10
             liw = 30
             lwm = 0
@@ -1481,38 +1471,37 @@ class lsodes(IntegratorBase):
         else:
             raise Exception('Unsupported method.')
 
-        rwork = asfortranarray(zeros((lrw, ), float))
-        rwork[4] = self.first_step
-        rwork[5] = self.max_step
-        rwork[6] = self.min_step
-        self.rwork = rwork
-
-        iwork = asfortranarray(zeros((liw, ), int32))
-        iwork[4] = self.ixpr
-        iwork[5] = self.nsteps
-        iwork[6] = self.max_hnil
-        iwork[7] = self.max_order_ns
-        iwork[8] = self.max_order_s
+        self.rwork = zeros((lrw, ), float)
+        self.rwork[4] = self.first_step
+        self.rwork[5] = self.max_step
+        self.rwork[6] = self.min_step
+        
+        self.iwork = zeros((liw, ), int32)
+        self.iwork[4] = self.ixpr
+        self.iwork[5] = self.nsteps
+        self.iwork[6] = self.max_hnil
+        self.iwork[7] = self.max_order_ns
+        self.iwork[8] = self.max_order_s
 
         if (re.match(self.method, r'bdf', re.I) and has_jac
                 and self.csc_jacobian is not None):
-            iwork[29:29 + n + 1] = ia
-            iwork[29 + n + 1:29 + n + 1 + nnz] = ja
+            self.iwork[29:29 + n + 1] = ia
+            self.iwork[29 + n + 1:29 + n + 1 + nnz] = ja
 
-        self.iwork = iwork
         self.call_args = [
             self.rtol, self.atol, 1, 1, self.rwork, self.iwork, self.mt
         ]
-        self.reset_done = True
 
     def _lsodes_sparse_jac_wrapper(self, t, y, j, jac_params):
         """
-        DLSODES reads the jacobian for current (t,y) columnwise
-        and does y.shape calls to the jac function. This wrapper
-        caches the result of jac for each t and returns fast
-        column j slices. Only the values of the nonzero elements
-        need to be updated.
+        DLSODES reads the jacobian matrix for current values of 
+        t and y columnwise and performs y.shape calls to the jac 
+        function. This wrapper caches the result of the jac funtion 
+        for each t and returns column j slices. Only the values of 
+        the nonzero elements need to be updated if csc_jacobian is
+        provided during initialization and sparsity structure is known.
         """
+
         if t != self.tlast:
             self.jmatlast = self.jacfunc(t, y, jac_params)
             self.tlast = t
@@ -1525,10 +1514,10 @@ class lsodes(IntegratorBase):
         else:
             self.initialized = True
             self.acquire_new_handle()
-        # TODO: adjust args to fortran rountine dlsodes
-
-        # Wrap jacobian function
+        
+        # Wrap call to jacobian
         self.jacfunc = jac
+
         args = [f, y0, t0, t1] + self.call_args[:-1] + \
                [self._lsodes_sparse_jac_wrapper, self.call_args[-1],
                f_params, 0, jac_params]

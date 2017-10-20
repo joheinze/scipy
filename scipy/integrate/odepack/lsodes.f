@@ -1268,7 +1268,7 @@ C-----------------------------------------------------------------------
       DOUBLE PRECISION ATOLI, AYI, BIG, EWTI, H0, HMAX, HMX, RH, RTOLI,
      1   TCRIT, TDIST, TNEXT, TOL, TOLSF, TP, SIZE, SUM, W0
       DIMENSION MORD(2)
-      LOGICAL IHIT
+      LOGICAL IHIT, OVERY
       CHARACTER*60 MSG
       SAVE LENRAT, MORD, MXSTP0, MXHNL0
 C-----------------------------------------------------------------------
@@ -1304,6 +1304,25 @@ C LENRAT = 1 for single precision and 2 for double precision.  If the
 C true ratio is not an integer, use the next smaller integer (.ge. 1).
 C-----------------------------------------------------------------------
       DATA LENRAT/2/
+      DATA OVERY/.FALSE./
+      
+C-----------------------------------------------------------------------
+C A special mode ISTATE = 20 is introduced to allow for minimal
+C adjustments of Y between subsequent ISTATE = 2 calls. An ISTATE = 20 
+C call will overwrite the LYH:LYH+N part of RWORK with new values from 
+C Y, but otherwise work identically to ISTATE = 2. Be careful when doing
+C larger changes since other temporal variables, such as derivatives, 
+C are not recomputed and only limited testing was performed.
+C
+C Anatoli Fedynitch, DESY, 2017
+C-----------------------------------------------------------------------
+      IF (ISTATE .EQ. 20) THEN
+        OVERY = .TRUE.
+        ISTATE = 2
+      ELSE
+        OVERY = .FALSE.
+      END IF
+
 C-----------------------------------------------------------------------
 C Block A.
 C This code block is executed on every call.
@@ -1687,6 +1706,11 @@ C-----------------------------------------------------------------------
 C-----------------------------------------------------------------------
 C    CALL DSTODE(NEQ,Y,YH,NYH,YH,EWT,SAVF,ACOR,WM,WM,F,JAC,DPRJS,DSOLSS)
 C-----------------------------------------------------------------------
+      IF (OVERY .EQV. .TRUE.) THEN
+        DO I = 1,N
+           RWORK(I+LYH-1) = Y(I)
+        END DO
+      END IF
       CALL DSTODE (NEQ, Y, RWORK(LYH), NYH, RWORK(LYH), RWORK(LEWT),
      1   RWORK(LSAVF), RWORK(LACOR), RWORK(LWM), RWORK(LWM),
      2   F, JAC, DPRJS, DSOLSS)

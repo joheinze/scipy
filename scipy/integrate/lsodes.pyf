@@ -39,7 +39,7 @@ python module lsodes
             double precision dimension(*),intent(in),check(len(rtol)<&
                 &=1||len(rtol)>=neq),depend(neq) :: rtol
             integer intent(in),check(itask>0 && itask<6) :: itask
-            integer intent(in,out),check(istate>0 && istate<4) :: istate
+            integer intent(in,out),check((istate>0 && istate<4) || istate==20) :: istate
             integer intent(hide) :: iopt = 1
             double precision dimension(lrw),intent(in,cache) :: rwork
             integer intent(hide),check(len(rwork)>=lrw),depend(rwork) :: lrw=len(rwork)
