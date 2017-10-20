@@ -1710,6 +1710,8 @@ C-----------------------------------------------------------------------
         DO I = 1,N
            RWORK(I+LYH-1) = Y(I)
         END DO
+        JSTART = 0
+        OVERY = .FALSE.
       END IF
       CALL DSTODE (NEQ, Y, RWORK(LYH), NYH, RWORK(LYH), RWORK(LEWT),
      1   RWORK(LSAVF), RWORK(LACOR), RWORK(LWM), RWORK(LWM),
